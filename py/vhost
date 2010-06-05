@@ -1,0 +1,263 @@
+#!/usr/bin/python
+#Author: Ronni Elken Lindsgaard
+#Email: ronni.lindsgaard@gmail.com
+#Version: 1.0
+#Description: Manipulates an apache configuration file for virtualhosts.
+#License: Use and distribute freely, but don't remove this block of comments
+import os,re,sys
+
+def concat(list,sep=" "):
+  return sep.join(list)
+
+class VirtualHost:
+  def __init__(self,domain,docroot):
+    self.domain = domain
+    self.docroot = docroot
+    self.aliases = []
+    self.serveradmin = ""
+    self.loglevel = ""
+    self.errorlog = ""
+    self.customlog = ""
+    self.signature = ""
+
+  def server_admin(self,value):
+    self.serveradmin = value
+
+  def server_signature(self,value):
+    self.signature = value
+
+  def log_level(self,value):
+    self.loglevel = value
+
+  def error_log(self,value):
+    self.errorlog = value
+
+  def custom_log(self,value):
+    self.customlog = value
+
+  #Adds an alias 
+  def add_alias(self,alias,star_alias = False):
+    aliases = self.aliases
+    alias_exists = False
+    for a in aliases:
+       if(alias == a):
+         alias_exists = True 
+       if("*."+alias == a):
+         star_alias = false
+    if(not alias_exists):
+      self.aliases.append(alias)
+    if(star_alias):
+      self.aliases.append("*."+alias)
+
+  #Adds a list of aliases
+  def add_aliases(self,aliases,star_aliases):
+    for a in aliases:
+      self.add_alias(a,star_aliases)
+
+  #Remove serveraliases
+  def remove_alias(self,alias):
+    aliases = []
+    for a in self.aliases:
+      if(alias != a):
+         aliases.append(a)
+    self.aliases = alisases
+
+  #Removes a list of aliases
+  def remove_aliases(self,aliases):
+    for a in aliases:
+      self.remove_alias(a)
+
+  #Prepares the file for output
+  #@return: a string to be written to the output
+  def prepare(self):
+    filecontents = []
+    filecontents.append("<VirtualHost *>")
+    if(self.serveradmin):
+      filecontents.append("ServerAdmin "+ self.serveradmin)
+    filecontents.append("ServerName "+self.domain)
+    if(self.aliases):
+      filecontents.append("ServerAlias "+concat(self.aliases))
+    filecontents.append("DocumentRoot "+self.docroot)
+    filecontents.append("")
+    filecontents.append("<Directory "+self.docroot+">")
+    filecontents.append("Options None")
+    filecontents.append("AllowOverride All")
+    filecontents.append("Order allow,deny")
+    filecontents.append("allow from all")
+    filecontents.append("</Directory>")
+    filecontents.append("")
+    #if(self.custom):
+    #  for c in self.custom:
+    #    filecontents.append(c)
+    if(self.loglevel):
+      filecontents.append("LogLevel "+self.loglevel)
+    if(self.errorlog):
+      filecontents.append("ErrorLog "+self.errorlog)
+    if(self.customlog):
+      filecontents.append("CustomLog "+self.customlog)
+    if(self.signature):
+      filecontents.append("ServerSignature "+ ("On" if self.signature=="On" else "Off"))
+    filecontents.append("</VirtualHost>") 
+    return concat(filecontents,"\n")
+
+class Parser:
+  def __init__(self,str):
+    self.sjov = str
+    self.domain = self.find("ServerName")
+    self.docroot = self.find("DocumentRoot")
+    self.aliases = self.find("ServerAlias").split()
+    self.serveradmin = self.find("ServerAdmin")
+#    self.options self.find("<Directory "+self.docroot+">\n.*?Options","None").split()
+    self.loglevel = self.find("LogLevel")
+    self.errorlog = self.find("ErrorLog")
+    self.customlog = self.find("CustomLog")
+    self.signature = self.find("ServerSignature")
+  def find(self,needle,default=""):
+    regexp="(?<="+needle+" ).*"
+    m = re.search(regexp,self.sjov)
+    return m.group(0) if m != None else default
+if(__name__ == "__main__"):    
+  from optparse import OptionParser
+
+  #Setup parameters
+  parser = OptionParser()
+  #ServerName
+  parser.add_option("-d","--domain", dest="domain",help="Specifies the domain name. It will also be used as the name of the ouput file.")
+  parser.add_option("--outdir",dest="outdir",help="The directory in which to read/write the virtual host file")
+  parser.add_option("-f","--outfile",dest="outfile",help="The filename of the virtual host file")
+  #ServerAlias
+  parser.add_option("-a","--add-alias", action="append", dest="new_aliases",help="Adds a new ServerAlias. Can be used n times to specify more aliases.")
+  parser.add_option("--remove-alias", action="append", dest="rm_aliases",help="Remove an existing alias. If a star alias is specified you need to remove that manually.")
+  parser.add_option("--remove-all-aliases", action="store_true",dest="rm_all_aliases",default=False,help="Removes all existing aliases, this is done before adding new ones.")
+  parser.add_option("--no-star-aliases",action="store_false",dest="star_aliases",default=True,help="If set, star aliases won't be created for the aliases specified in --add-alias. Defaults to True")
+  #DocumentRoot
+  parser.add_option("-r","--docroot", dest="docroot",type="string",help="Specifies the complete path to DocumentRoot. This value is required upon creation of a new virtual host.")
+  #parser.add_option("-o","--option",action="append", dest="options", help="Specifies a list of Options in the root <Directory >. NB! Not implemented yet") #Not implemented 
+  #parser.add_option("--options-default",dest="options",action="store_const",const=["None"],help="Sets the Options value to it's default specification (None). NB! Not implemented yet") #Not implemented yet
+  #ServerAdmin
+  parser.add_option("--admin",dest="serveradmin", help="The e-mail adress of the server administrator.")
+  parser.add_option("--admin-default",dest="serveradmin",action="store_const",const="default",help="Sets the ServerAdmin directive to the default value of the webserver.")
+  #ServerSignature
+  parser.add_option("--signature-on",dest="signature",action="store_const",const="On",help="Sets the ServerSignature to On")
+  parser.add_option("--signature-off",dest="signature",action="store_const",const="Off",help="Sets the ServerSignature to Off")
+  parser.add_option("--signature-default",dest="signature",action="store_const",const="default",help="Sets the ServerSignature to the default value of the webserver.")
+  #LogLevel
+  parser.add_option("--loglevel",dest="loglevel",help="Specifies the the LogLevel directive, see the apache documentation for details.")
+  parser.add_option("--loglevel-default",dest="loglevel",action="store_const",const="default",help="Sets the LogLevel directive to the default value of the webserver.")
+  #ErrorLog
+  parser.add_option("--error-log",dest="errorlog",help="Specifies the file to output the error log")
+  parser.add_option("--error-log-default",dest="errorlog",action="store_const",const="default",help="Sets the ErrorLog directive to the default value of the webserver.")
+  #CustomLog
+  parser.add_option("--custom-log",dest="customlog",help="Specifies the file to output the custom log")
+  parser.add_option("--custom-log-default",dest="customlog",action="store_const",const="default",help="Sets the CustomLog directive to the default value of the webserver.")
+  #parser.add_option("-c","--custom",action="append",dest="custom") #Not implemented yet
+  #Verbosity
+  parser.add_option("-v","--verbose",action="count",dest="verbose",default=0,help="Sets the verbosity of the actions performed, add the argument multiple times for a more verbose output.") #Not implemented yet
+  parser.add_option("--verbosity",type="int",dest="verbose",help="Sets the verbosity of the actions perfomed, takes an integer as argument")
+  (options,args) = parser.parse_args()
+
+
+  def notify(str,n=0):
+    if(options.verbose > n):
+      print(str)
+
+  filename = options.outfile if options.outfile else options.domain  
+  fpath = options.outdir+filename if options.outdir else filename
+
+  if(options.domain or os.path.isfile(fpath)):
+    if(os.path.isfile(fpath)):
+      notify("File (" + fpath + ") exists, reading configuration from file")
+      f = open(fpath,'r')
+      p = Parser(f.read())
+      f.close()
+    elif(options.docroot):
+      notify("Creating " + fpath)
+      p = None
+    else:
+      sys.exit("Document root is not defined")
+  
+    f = open(fpath,'w')
+    domain = options.domain if options.domain else p.domain
+    docroot = options.docroot if options.docroot else p.docroot
+  
+    vhost = VirtualHost(domain,docroot)
+  
+    if(options.star_aliases):
+      vhost.add_alias("*."+domain,False)
+
+    if(options.serveradmin):
+      notify("Setting ServerAdmin directive to: " + options.serveradmin,1)
+      vhost.server_admin(options.serveradmin)
+    elif(p != None and p.serveradmin):
+      notify("Keeping ServerAdmin directive: " + p.serveradmin,2)
+      vhost.server_admin(p.serveradmin)
+
+    if(options.rm_all_aliases):
+      notify("Removing all current aliases",1)
+      aliases = []
+    else:
+      aliases = p.aliases if p else []
+    vhost.add_aliases(aliases,False)
+
+    if(options.rm_aliases):
+      for a in options.rm_aliases:
+        notify("Removing alias: " + a)
+      vhost.remove_aliases(options.rm_aliases)
+
+    if(options.new_aliases):
+      for a in options.new_aliases:
+        str = "Adding alias: "
+        notify(str + a)
+        if(options.star_aliases):
+          notify(str + "*." + a)
+      vhost.add_aliases(options.new_aliases,options.star_aliases)
+  
+    if(options.loglevel):
+      if(options.loglevel == "default"):
+        notify("Setting LogLevel directive to server default",1)
+        vhost.log_level("")
+      else:
+        notify("Setting LogLevel directive to: " + options.loglevel,1)
+        vhost.log_level(options.loglevel)
+    elif(p != None and p.loglevel):
+      notify("Keeping LogLevel directive: " + p.loglevel,2)
+      vhost.log_level(p.loglevel)
+
+    if(options.errorlog):
+      if(options.errorlog == "default"):
+        notify("Setting ErrorLog directive to server default",1)
+        vhost.error_log("")
+      else:
+        notify("Setting ErrorLog directive to: " + options.errorlog,1)
+        vhost.error_log(options.errorlog)
+    elif(p != None and p.errorlog):
+      notify("Keeping ErrorLog directive: " + p.errorlog,2)
+      vhost.error_log(p.errorlog)
+  
+    if(options.customlog):
+      if(options.customlog == "default"):
+        notify("Setting CustomLog directive to server default",1)
+        vhost.custom_log("")
+      else:
+        notify("Setting CustomLog directive to: "+options.customlog,1)
+        vhost.custom_log(options.customlog)
+    elif(p != None and p.customlog):
+      notify("Keeping CustomLog directive: " + p.customlog)
+      vhost.custom_log(p.customlog)
+
+    if(options.signature):
+      if(options.signature == "default"):
+        notify("Setting ServerSignature directive to server default",1)
+        vhost.server_signature("")
+      else:
+        notify("Setting ServerSignature directive to: " + options.signature,1)
+        vhost.server_signature(options.signature)
+    elif(p != None and p.signature):
+      notify("Keeping ServerSignature directive: " + p.signature,2)
+      vhost.server_signature(p.signature)
+
+    notify("Writing to file")
+    f.write(vhost.prepare())
+    f.close()
+  else:
+    sys.exit("Domain is not defined")
